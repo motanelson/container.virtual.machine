@@ -51,62 +51,62 @@ void filter_pipe(HANDLE hPipeRead) {
 }
 
 int main(int argc, char *argv[]) {
-    /*if (argc < 2) {
-        fprintf(stderr, "Uso: %s <comando> [argumentos...]\n", argv[0]);
-        return 1;
-    }
-    */
-    hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
-    if (hConsole == INVALID_HANDLE_VALUE) return 1;
-
-    // Criar pipe para capturar stdout do filho
-    HANDLE hPipeRead, hPipeWrite;
-    SECURITY_ATTRIBUTES sa = { sizeof(sa), NULL, TRUE }; // herdável
-    if (!CreatePipe(&hPipeRead, &hPipeWrite, &sa, 0)) {
-        fprintf(stderr, "CreatePipe falhou\n");
-        return 1;
-    }
-
-    // Garantir que a leitura seja não-bloqueante? Não necessário, mas vamos configurar
-    // Prepara o processo filho
-    STARTUPINFO si = { sizeof(si) };
+    char cmdLine[32767];
+    SECURITY_ATTRIBUTES sa = { sizeof(sa), NULL, TRUE };
+    STARTUPINFO si;
     PROCESS_INFORMATION pi;
-    si.dwFlags = STARTF_USESTDHANDLES;
-    si.hStdOutput = hPipeWrite;   // stdout do filho vai para o pipe
-    si.hStdError = GetStdHandle(STD_ERROR_HANDLE); // stderr não redirecionado (opcional)
-    si.hStdInput = GetStdHandle(STD_INPUT_HANDLE); // stdin do filho = nosso stdin
-
-    // Montar linha de comando
-    char cmdLine[32767] = "";
-    for (int i = 1; i < argc; i++) {
-        strcat(cmdLine, argv[i]);
-        if (i < argc-1) strcat(cmdLine, " ");
-    }
-    strcpy(cmdLine,"command");
-    // Criar o processo filho
-    BOOL ok = CreateProcess(NULL, cmdLine, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi);
-    CloseHandle(hPipeWrite); // o filho herdou, podemos fechar nossa cópia
-
-    if (!ok) {
-        fprintf(stderr, "CreateProcess falhou: %d\n", GetLastError());
-        CloseHandle(hPipeRead);
-        return 1;
-    }
-
-    // Fechar o handle do filho (não precisamos esperar explicitamente, mas vamos esperar o pipe terminar)
-    CloseHandle(pi.hThread);
-
-    // Filtrar a saída do pipe até o fim
-    filter_pipe(hPipeRead);
-
-    // Aguardar o processo terminar (opcional, para pegar o exit code)
-    WaitForSingleObject(pi.hProcess, INFINITE);
     DWORD exitCode;
-    GetExitCodeProcess(pi.hProcess, &exitCode);
-    CloseHandle(pi.hProcess);
-    CloseHandle(hPipeRead);
+    BOOL ok;
 
-    // Restaurar cor padrão
+    while (1) {
+        hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+        if (hConsole == INVALID_HANDLE_VALUE) return 1;
+
+        HANDLE hPipeRead, hPipeWrite;
+
+        if (!CreatePipe(&hPipeRead, &hPipeWrite, &sa, 0)) {
+            fprintf(stderr, "CreatePipe falhou\n");
+            return 1;
+        }
+
+        ZeroMemory(&si, sizeof(si));
+        si.cb = sizeof(si);
+
+        si.dwFlags = STARTF_USESTDHANDLES;
+        si.hStdOutput = hPipeWrite;
+        si.hStdError = GetStdHandle(STD_ERROR_HANDLE);
+        si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+
+        printf("_:>");
+        fflush(stdout);
+
+        memset(cmdLine, 0, sizeof(cmdLine));
+        fgets(cmdLine, sizeof(cmdLine), stdin);
+        if(strncmp(cmdLine,"exit",4)==0)break;
+        if(strncmp(cmdLine,"EXIT",4)==0)break;
+        // remover newline
+        cmdLine[strcspn(cmdLine, "\n")] = 0;
+
+        ok = CreateProcess(NULL, cmdLine, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi);
+        CloseHandle(hPipeWrite);
+
+        if (!ok) {
+            fprintf(stderr, "CreateProcess falhou: %d\n", GetLastError());
+            CloseHandle(hPipeRead);
+            continue;
+        }
+
+        CloseHandle(pi.hThread);
+
+        filter_pipe(hPipeRead);
+
+        WaitForSingleObject(pi.hProcess, INFINITE);
+        GetExitCodeProcess(pi.hProcess, &exitCode);
+
+        CloseHandle(pi.hProcess);
+        CloseHandle(hPipeRead);
+    }
+
     set_color(7, 0);
-    return exitCode;
+    return 0;
 }
